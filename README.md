@@ -22,7 +22,6 @@ A continuación se muestra una captura de la interfaz principal de **MiniOffice*
 
 
 
-> ⚠ **IMPORTANTE:** Sustituir `URL_DE_TU_IMAGEN_AQUI` por la URL RAW de la imagen que subas a GitHub.
 
 ## Ejecución con Python
 
@@ -30,4 +29,5 @@ A continuación se muestra una captura de la interfaz principal de **MiniOffice*
 2. Instalar la librería necesaria:
    ```bash
    pip install PySide6
+
 
