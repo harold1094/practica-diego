@@ -30,4 +30,9 @@ A continuación se muestra una captura de la interfaz principal de **MiniOffice*
    ```bash
    pip install PySide6
 
+3.Ejecutar el programa desde la terminal (ubicado en la carpeta del proyecto):
+   ```bash
+   python MiniOffice.py
+
+
 
