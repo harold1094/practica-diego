@@ -1,5 +1,6 @@
 import os
-from PySide6.QtCore import Qt, QTimer
+import speech_recognition as sr
+from PySide6.QtCore import Qt, QTimer, Signal, QThread
 from PySide6.QtGui import QAction, QKeySequence, QIcon, QTextDocument, QTextCursor, QTextCharFormat
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QTextEdit, QToolBar, QStatusBar, QLabel,
@@ -10,10 +11,45 @@ from PySide6.QtWidgets import (
 )
 
 
+class VoiceWorker(QThread):
+    recognized = Signal(str)
+    status = Signal(str)
+
+    def __init__(self, language="es-ES", parent=None):
+        super().__init__(parent)
+        self.language = language
+        self._running = True
+
+    def stop(self):
+        self._running = False
+
+    def run(self):
+        r = sr.Recognizer()
+        try:
+            with sr.Microphone() as source:
+                self.status.emit("🎤 Calibrando ruido…")
+                r.adjust_for_ambient_noise(source, duration=0.6)
+                if not self._running:
+                    return
+                self.status.emit("🎧 Escuchando… (habla ahora)")
+                audio = r.listen(source, phrase_time_limit=5)
+            if not self._running:
+                return
+            self.status.emit("🧠 Transcribiendo…")
+            text = r.recognize_google(audio, language=self.language)
+            self.recognized.emit(text)
+        except sr.UnknownValueError:
+            self.status.emit("No te he entendido 😅 (prueba otra vez)")
+        except sr.RequestError as e:
+            self.status.emit(f"Error con el servicio de reconocimiento: {e}")
+        except Exception as e:
+            self.status.emit(f"Error de micro/audio: {e}")
+
+
 class MiniOffice(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Mini Word")
+        self.setWindowTitle("Mini Word - Harold Ríos Gallego")
         self.resize(900, 600)
 
         self.editor = QTextEdit(self)
@@ -22,12 +58,12 @@ class MiniOffice(QMainWindow):
         self.setStatusBar(QStatusBar())
         self.lbl_palabras = QLabel("Palabras: 0", self)
         self.statusBar().addPermanentWidget(self.lbl_palabras)
-        self.statusBar().showMessage("Listo")
+        self.statusBar().showMessage("Desarrollado por Harold Ríos Gallego")
         self.barra_estado = self.statusBar()
 
         self.timer_palabras = QTimer(self)
-        self.timer_palabras.setInterval(200)        
-        self.timer_palabras.setSingleShot(True)     
+        self.timer_palabras.setInterval(200)
+        self.timer_palabras.setSingleShot(True)
         self.timer_palabras.timeout.connect(self.actualizar_contador_palabras)
         self.editor.textChanged.connect(self.reiniciar_temporizador_palabras)
 
@@ -132,6 +168,17 @@ class MiniOffice(QMainWindow):
         ]:
             barra_herr.addAction(act)
 
+        # --- VOZ (Dictado) ---
+        self.voice_worker = None
+        self.act_voz = QAction("Dictado (🎤)", self)
+        self.act_parar_voz = QAction("Parar dictado", self)
+        self.act_voz.setShortcut(QKeySequence("Ctrl+M"))
+        self.act_voz.triggered.connect(self.accion_dictado)
+        self.act_parar_voz.triggered.connect(self.accion_parar_dictado)
+        barra_herr.addSeparator()
+        barra_herr.addAction(self.act_voz)
+        barra_herr.addAction(self.act_parar_voz)
+
         self.dock_buscar = QDockWidget("Buscar", self)
         panel_buscar = QWidget(self.dock_buscar)
 
@@ -156,7 +203,7 @@ class MiniOffice(QMainWindow):
         self.dock_buscar.setWidget(panel_buscar)
 
         self.addDockWidget(Qt.RightDockWidgetArea, self.dock_buscar)
-        self.dock_buscar.hide()  
+        self.dock_buscar.hide()
 
         btn_abajo.clicked.connect(lambda: self.buscar_texto_panel(hacia_arriba=False))
         btn_arriba.clicked.connect(lambda: self.buscar_texto_panel(hacia_arriba=True))
@@ -301,6 +348,83 @@ class MiniOffice(QMainWindow):
 
     def reiniciar_temporizador_palabras(self):
         self.timer_palabras.start()
+
+    # ---------------- VOZ ----------------
+    def accion_dictado(self):
+        if self.voice_worker and self.voice_worker.isRunning():
+            self.barra_estado.showMessage("Ya estoy escuchando 😄", 2000)
+            return
+
+        self.voice_worker = VoiceWorker(language="es-ES", parent=self)
+        self.voice_worker.status.connect(lambda msg: self.barra_estado.showMessage(msg, 4000))
+        self.voice_worker.recognized.connect(self.procesar_texto_voz)
+        self.voice_worker.start()
+
+    def accion_parar_dictado(self):
+        if self.voice_worker and self.voice_worker.isRunning():
+            self.voice_worker.stop()
+            self.barra_estado.showMessage("Dictado detenido", 2000)
+        else:
+            self.barra_estado.showMessage("No había dictado activo", 2000)
+
+    def procesar_texto_voz(self, texto: str):
+        t = (texto or "").strip()
+        if not t:
+            return
+
+        comando = t.lower()
+
+        # Comandos por voz
+        if "negrita" in comando:
+            self.toggle_negrita()
+            self.barra_estado.showMessage("✅ Negrita", 2000)
+            return
+        if "cursiva" in comando:
+            self.toggle_cursiva()
+            self.barra_estado.showMessage("✅ Cursiva", 2000)
+            return
+        if "subrayado" in comando:
+            self.toggle_subrayado()
+            self.barra_estado.showMessage("✅ Subrayado", 2000)
+            return
+        if "guardar archivo" in comando or comando == "guardar":
+            self.accion_guardar()
+            return
+        if "nuevo documento" in comando or comando == "nuevo":
+            self.accion_nuevo()
+            return
+
+        # Si no es comando → insertar texto
+        cursor = self.editor.textCursor()
+        if cursor.hasSelection():
+            cursor.removeSelectedText()
+        cursor.insertText(t + " ")
+        self.editor.setTextCursor(cursor)
+        self.barra_estado.showMessage(f"📝 Dictado: {t}", 3000)
+
+    def _merge_format_on_selection(self, fmt: QTextCharFormat):
+        cursor = self.editor.textCursor()
+        if not cursor.hasSelection():
+            cursor.select(QTextCursor.SelectionType.WordUnderCursor)
+            self.editor.setTextCursor(cursor)
+        cursor.mergeCharFormat(fmt)
+        self.editor.mergeCurrentCharFormat(fmt)
+
+    def toggle_negrita(self):
+        fmt = QTextCharFormat()
+        current = self.editor.fontWeight()
+        fmt.setFontWeight(400 if current > 400 else 700)
+        self._merge_format_on_selection(fmt)
+
+    def toggle_cursiva(self):
+        fmt = QTextCharFormat()
+        fmt.setFontItalic(not self.editor.fontItalic())
+        self._merge_format_on_selection(fmt)
+
+    def toggle_subrayado(self):
+        fmt = QTextCharFormat()
+        fmt.setFontUnderline(not self.editor.fontUnderline())
+        self._merge_format_on_selection(fmt)
 
     def actualizar_contador_palabras(self):
         texto = self.editor.toPlainText().strip()
