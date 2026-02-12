@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QDockWidget, QWidget, QLineEdit, QPushButton,
     QVBoxLayout, QHBoxLayout
 )
+from word_counter_widget import WordCounterWidget
 
 
 class VoiceWorker(QThread):
@@ -56,8 +57,9 @@ class MiniOffice(QMainWindow):
         self.setCentralWidget(self.editor)
 
         self.setStatusBar(QStatusBar())
-        self.lbl_palabras = QLabel("Palabras: 0", self)
-        self.statusBar().addPermanentWidget(self.lbl_palabras)
+        self.word_counter = WordCounterWidget(wpm=200, mostrarPalabras=True, mostrarCaracteres=True, mostrarTiempoLectura=True, parent=self)
+        self.statusBar().addPermanentWidget(self.word_counter)
+        self.word_counter.conteoActualizado.connect(self.on_conteo_actualizado)
         self.statusBar().showMessage("Desarrollado por Harold Ríos Gallego")
         self.barra_estado = self.statusBar()
 
@@ -427,9 +429,11 @@ class MiniOffice(QMainWindow):
         self._merge_format_on_selection(fmt)
 
     def actualizar_contador_palabras(self):
-        texto = self.editor.toPlainText().strip()
-        palabras = len(texto.split()) if texto else 0
-        self.lbl_palabras.setText(f"Palabras: {palabras}")
+        texto = self.editor.toPlainText()
+        self.word_counter.update_from_text(texto)
+
+    def on_conteo_actualizado(self, palabras, caracteres):
+        self.barra_estado.showMessage(f"Palabras: {palabras} | Caracteres: {caracteres}", 3000)
 
 
 if __name__ == "__main__":
